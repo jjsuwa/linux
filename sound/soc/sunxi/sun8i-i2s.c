@@ -73,11 +73,9 @@
 	#define I2S_FAT0_H3_LRCK_PERIOD(v)	((v) << 8)
 	#define I2S_FAT0_H3_LRCK_PERIOD_MSK (0x3ff << 8)
 	#define I2S_FAT0_H3_BCLK_POLARITY	BIT(7)
-	#define I2S_FAT0_H3_SR_16		(3 << 4)
-	#define I2S_FAT0_H3_SR_24		(5 << 4)
+	#define I2S_FAT0_H3_SR(v)		((((v) >> 2) - 1) << 4)
 	#define I2S_FAT0_H3_SR_MSK		(7 << 4)
-	#define I2S_FAT0_H3_SW_16		(3 << 0)
-	#define I2S_FAT0_H3_SW_32		(7 << 0)
+	#define I2S_FAT0_H3_SW(v)		((((v) >> 2) - 1) << 0)
 	#define I2S_FAT0_H3_SW_MSK		(7 << 0)
 
 #define I2S_FAT1		0x08
@@ -291,7 +289,7 @@ static int sun8i_i2s_set_clock(struct priv *priv, unsigned long rate)
 
 		regmap_update_bits(priv->regmap, I2S_FAT0,
 				   I2S_FAT0_H3_SW_MSK | I2S_FAT0_H3_SR_MSK,
-				   I2S_FAT0_H3_SW_16 | I2S_FAT0_H3_SR_16);
+				   I2S_FAT0_H3_SW(16) | I2S_FAT0_H3_SR(16));
 	}
 	regmap_write(priv->regmap, I2S_FAT1, 0);
 
@@ -426,10 +424,16 @@ static int sun8i_i2s_hw_params(struct snd_pcm_substream *substream,
 		sample_resolution = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S20_3LE:
+		priv->playback_dma_data.addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+		sample_resolution = 20;
+		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
-	case SNDRV_PCM_FORMAT_S32_LE:
 		priv->playback_dma_data.addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
 		sample_resolution = 24;
+		break;
+	case SNDRV_PCM_FORMAT_S32_LE:
+		priv->playback_dma_data.addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+		sample_resolution = 32;
 		break;
 	default:
 		return -EINVAL;
@@ -457,17 +461,17 @@ static int sun8i_i2s_hw_params(struct snd_pcm_substream *substream,
 		if (sample_resolution == 16) {
 			regmap_update_bits(priv->regmap, I2S_FAT0,
 					   I2S_FAT0_H3_SR_MSK | I2S_FAT0_H3_SW_MSK,
-					   I2S_FAT0_H3_SR_16 | I2S_FAT0_H3_SW_16);
+					   I2S_FAT0_H3_SR(16) | I2S_FAT0_H3_SW(16));
 			regmap_update_bits(priv->regmap, I2S_FCTL,
 					   I2S_FCTL_TXIM,
 					   I2S_FCTL_TXIM);
 		} else {
 			regmap_update_bits(priv->regmap, I2S_FAT0,
 					   I2S_FAT0_H3_SR_MSK | I2S_FAT0_H3_SW_MSK,
-					   I2S_FAT0_H3_SR_24 | I2S_FAT0_H3_SW_32);
+					   I2S_FAT0_H3_SR(sample_resolution) | I2S_FAT0_H3_SW(32));
 			regmap_update_bits(priv->regmap, I2S_FCTL,
 					   I2S_FCTL_TXIM,
-					   0);
+					   I2S_FCTL_TXIM);
 		}
 	}
 
