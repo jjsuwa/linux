@@ -303,6 +303,9 @@ static int sun4i_spi_transfer_one(struct spi_master *master,
 
 	sun4i_spi_write(sspi, SUN4I_CLK_CTL_REG, reg);
 
+	/* Finally enable the bus - doing so before might raise SCK to HIGH */
+	sun4i_spi_write(sspi, SUN4I_CTL_REG, sun4i_spi_read(sspi, SUN4I_CTL_REG) | SUN4I_CTL_ENABLE);
+
 	/* Setup the transfer now... */
 	if (sspi->tx_buf)
 		tx_len = tfr->len;
@@ -407,7 +410,7 @@ static int sun4i_spi_runtime_resume(struct device *dev)
 	}
 
 	sun4i_spi_write(sspi, SUN4I_CTL_REG,
-			SUN4I_CTL_ENABLE | SUN4I_CTL_MASTER | SUN4I_CTL_TP);
+			SUN4I_CTL_MASTER | SUN4I_CTL_TP);
 
 	return 0;
 
