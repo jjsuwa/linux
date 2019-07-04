@@ -43,9 +43,6 @@
 	#define I2S_CTL_TXEN		BIT(2)
 	#define I2S_CTL_RXEN		BIT(1)
 	#define I2S_CTL_GEN		BIT(0)
-	/* a83t */
-	#define I2S_CTL_A83T_MS		BIT(5)
-	#define I2S_CTL_A83T_PCM	BIT(4)
 	/* h3 */
 	#define I2S_CTL_H3_BCLKOUT	BIT(18)
 	#define I2S_CTL_H3_LRCKOUT	BIT(17)
@@ -55,17 +52,6 @@
 
 #define I2S_FAT0 		0x04
 	/* common */
-	/* a83t */
-	#define I2S_FAT0_A83T_LRCP		BIT(7)
-	#define I2S_FAT0_A83T_BCP		BIT(6)
-	#define I2S_FAT0_A83T_SR_16BIT		(0 << 4)
-	#define I2S_FAT0_A83T_SR_24BIT		(2 << 4)
-	#define I2S_FAT0_A83T_SR_MSK		(3 << 4)
-	#define I2S_FAT0_A83T_WSS_32BCLK	(3 << 2)
-	#define I2S_FAT0_A83T_FMT_I2S1		(0 << 0)
-	#define I2S_FAT0_A83T_FMT_LFT		(1 << 0)
-	#define I2S_FAT0_A83T_FMT_RGT		(2 << 0)
-	#define I2S_FAT0_A83T_FMT_MSK		(3 << 0)
 	/* h3 */
 	#define I2S_FAT0_H3_LRCKR_PERIOD(v) ((v) << 20)
 	#define I2S_FAT0_H3_LRCKR_PERIOD_MSK (0x3ff << 20)
@@ -97,21 +83,12 @@
 	/* common */
 	#define I2S_CLKD_BCLKDIV(v)	((v) << 4)
 	#define I2S_CLKD_MCLKDIV(v)	((v) << 0)
-	/* a83t */
-	#define I2S_CLKD_A83T_MCLKOEN	BIT(7)
 	/* h3 */
 	#define I2S_CLKD_H3_MCLKOEN	BIT(8)
 
 #define I2S_TXCNT  		0x28
 
 #define I2S_RXCNT  		0x2c
-
-/* --- A83T --- */
-#define I2S_TXCHSEL_A83T	0x30
-	#define I2S_TXCHSEL_A83T_CHNUM(v)	(((v) - 1) << 0)
-	#define I2S_TXCHSEL_A83T_CHNUM_MSK	(7 << 0)
-
-#define I2S_TXCHMAP_A83T	0x34
 
 /* --- H3 --- */
 #define I2S_TXCHCFG_H3		0x30
@@ -142,9 +119,8 @@
 #define PCM_LRCK_PERIOD 32
 #define PCM_LRCKR_PERIOD 1
 
-#define SOC_A83T 0
-#define SOC_H3 1
-#define SOC_H5 2
+#define SOC_H3 0
+#define SOC_H5 1
 
 struct priv {
 	struct clk *mod_clk;
@@ -159,8 +135,6 @@ struct priv {
 };
 
 static const struct of_device_id sun8i_i2s_of_match[] = {
-	{ .compatible = "allwinner,sun8i-a83t-i2s",
-				.data = (void *) SOC_A83T },
 	{ .compatible = "allwinner,sun8i-h3-i2s",
 				.data = (void *) SOC_H3 },
 	{ }
@@ -178,33 +152,8 @@ static void sun8i_i2s_init(struct priv *priv)
 
 	priv->nchan = 2;
 
-	/* A83T */
-	if (priv->type == SOC_A83T) {
-		regmap_update_bits(priv->regmap, I2S_CTL,
-				   I2S_CTL_A83T_MS |		/* codec clk & FRM slave */
-					I2S_CTL_A83T_PCM,	/* I2S mode */
-				   0);
-
-		regmap_update_bits(priv->regmap, I2S_FAT0,
-				   I2S_FAT0_A83T_FMT_MSK,
-				   0);
-		regmap_update_bits(priv->regmap, I2S_FAT0,
-				   I2S_FAT0_A83T_FMT_I2S1,
-				   I2S_FAT0_A83T_FMT_I2S1);
-		regmap_update_bits(priv->regmap, I2S_FAT0,
-				   I2S_FAT0_A83T_LRCP | I2S_FAT0_A83T_BCP,
-				   0);
-
-		regmap_write(priv->regmap, I2S_FCTL,
-			     I2S_FCTL_TXIM | /* fifo */
-				I2S_FCTL_TXTL(0x40));
-
-		regmap_update_bits(priv->regmap, I2S_FAT0,
-				   I2S_FAT0_A83T_LRCP |		/* normal bit clock + frame */
-					I2S_FAT0_A83T_BCP,
-				   0);
-	/* H3 */
-	} else {
+	switch (priv->type) {
+	case SOC_H3:
 		regmap_update_bits(priv->regmap, I2S_FCTL,
 				   I2S_FCTL_FRX | I2S_FCTL_FTX,	/* clear the FIFOs */
 				   0);
@@ -227,6 +176,7 @@ static void sun8i_i2s_init(struct priv *priv)
 		regmap_update_bits(priv->regmap, I2S_FAT0,
 				   I2S_FAT0_H3_BCLK_POLARITY | I2S_FAT0_H3_LRCK_POLARITY, /* normal bclk & frame */
 				   0);
+		break;
 	}
 }
 
@@ -256,8 +206,6 @@ static int sun8i_i2s_set_clock(struct priv *priv, unsigned long rate)
 		return -EINVAL;
 	}
 	div = freq / (rate * 2 * PCM_LRCK_PERIOD);
-	if (priv->type == SOC_A83T)
-		div /= 2;			/* bclk_div==0 => mclk/2 */
 	for (i = 0; i < ARRAY_SIZE(div_tb) - 1; i++)
 		if (div_tb[i] >= div)
 			break;
@@ -269,20 +217,16 @@ static int sun8i_i2s_set_clock(struct priv *priv, unsigned long rate)
 	}
 
 	/* set the mclk and bclk dividor register */
-	if (priv->type == SOC_A83T) {
-		regmap_write(priv->regmap, I2S_CLKD,
-			     I2S_CLKD_A83T_MCLKOEN | I2S_CLKD_MCLKDIV(i));
-	} else {
+	switch (priv->type) {
+	case SOC_H3:
 		regmap_write(priv->regmap, I2S_CLKD,
 			     I2S_CLKD_H3_MCLKOEN | I2S_CLKD_MCLKDIV(1) | I2S_CLKD_BCLKDIV(i + 1));
+		break;
 	}
 
 	/* format */
-	if (priv->type == SOC_A83T) {
-		regmap_update_bits(priv->regmap, I2S_FAT0,
-				   I2S_FAT0_A83T_WSS_32BCLK | I2S_FAT0_A83T_SR_MSK,
-				   I2S_FAT0_A83T_WSS_32BCLK | I2S_FAT0_A83T_SR_16BIT);
-	} else {
+	switch (priv->type) {
+	case SOC_H3:
 		regmap_update_bits(priv->regmap, I2S_FAT0,
 				   I2S_FAT0_H3_LRCKR_PERIOD_MSK | I2S_FAT0_H3_LRCK_PERIOD_MSK,
 				   I2S_FAT0_H3_LRCK_PERIOD(PCM_LRCK_PERIOD - 1) | I2S_FAT0_H3_LRCKR_PERIOD(PCM_LRCKR_PERIOD - 1));
@@ -290,6 +234,7 @@ static int sun8i_i2s_set_clock(struct priv *priv, unsigned long rate)
 		regmap_update_bits(priv->regmap, I2S_FAT0,
 				   I2S_FAT0_H3_SW_MSK | I2S_FAT0_H3_SR_MSK,
 				   I2S_FAT0_H3_SW(16) | I2S_FAT0_H3_SR(16));
+		break;
 	}
 	regmap_write(priv->regmap, I2S_FAT1, 0);
 
@@ -304,27 +249,8 @@ static void sun8i_i2s_tx_set_channels(struct priv *priv, int nchan)
 	DBGOUT("%s: nchan = %d", __func__, nchan);
 
 	priv->nchan = nchan;
-	if (priv->type == SOC_A83T) {
-		regmap_update_bits(priv->regmap, I2S_TXCHSEL_A83T,
-				   I2S_TXCHSEL_A83T_CHNUM_MSK,
-				   I2S_TXCHSEL_A83T_CHNUM(nchan));
-
-		switch (nchan) {
-		case 1:
-			regmap_write(priv->regmap, I2S_TXCHMAP_A83T,
-				     0x76543200);
-			break;
-		case 8:
-			regmap_write(priv->regmap, I2S_TXCHMAP_A83T,
-				     0x54762310);
-			break;
-		default:
-			/* left/right inversion of channels 0 and 1 */
-			regmap_write(priv->regmap, I2S_TXCHMAP_A83T,
-				     0x76543201);
-			break;
-		}
-	} else {
+	switch (priv->type) {
+	case SOC_H3:
 		regmap_update_bits(priv->regmap, I2S_TXCHCFG_H3,
 				   I2S_TXCHCFG_H3_TX_SLOT_NUM_MSK,
 				   I2S_TXCHCFG_H3_TX_SLOT_NUM(nchan - 1));
@@ -341,6 +267,7 @@ static void sun8i_i2s_tx_set_channels(struct priv *priv, int nchan)
 			reg |= (((0x00000001 << n) - 0x00000001) << (n * 4));
 		}
 		regmap_write(priv->regmap, I2S_TX0CHMAP_H3, reg);
+		break;
 	}
 
 	reg = 0;
@@ -441,23 +368,8 @@ static int sun8i_i2s_hw_params(struct snd_pcm_substream *substream,
 
 	DBGOUT("%s: sample_resolution = %d\n", __func__, sample_resolution);
 
-	if (priv->type == SOC_A83T) {
-		if (sample_resolution == 16) {
-			regmap_update_bits(priv->regmap, I2S_FAT0,
-					   I2S_FAT0_A83T_SR_MSK,
-					   I2S_FAT0_A83T_SR_16BIT);
-			regmap_update_bits(priv->regmap, I2S_FCTL,
-					   I2S_FCTL_TXIM,
-					   I2S_FCTL_TXIM);
-		} else {
-			regmap_update_bits(priv->regmap, I2S_FAT0,
-					   I2S_FAT0_A83T_SR_MSK,
-					   I2S_FAT0_A83T_SR_24BIT);
-			regmap_update_bits(priv->regmap, I2S_FCTL,
-					   I2S_FCTL_TXIM,
-					   0);
-		}
-	} else {
+	switch (priv->type) {
+	case SOC_H3:
 		if (sample_resolution == 16) {
 			regmap_update_bits(priv->regmap, I2S_FAT0,
 					   I2S_FAT0_H3_SR_MSK | I2S_FAT0_H3_SW_MSK,
@@ -473,6 +385,7 @@ static int sun8i_i2s_hw_params(struct snd_pcm_substream *substream,
 					   I2S_FCTL_TXIM,
 					   I2S_FCTL_TXIM);
 		}
+		break;
 	}
 
 	/* flush TX FIFO */
@@ -494,23 +407,21 @@ static int sun8i_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 	case SND_SOC_DAIFMT_LEFT_J:
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_CTL,
 					   I2S_CTL_H3_MODE_MSK,
 					   I2S_CTL_H3_MODE_I2S);
+			break;
 		}
 		break;
 	case SND_SOC_DAIFMT_RIGHT_J:
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_CTL,
 					   I2S_CTL_H3_MODE_MSK,
 					   I2S_CTL_H3_MODE_RGT);
+			break;
 		}
 		break;
 	default:
@@ -521,50 +432,43 @@ static int sun8i_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_IB_IF:
 		/* Invert both clocks */
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_FAT0,
 					   I2S_FAT0_H3_BCLK_POLARITY | I2S_FAT0_H3_LRCK_POLARITY,
 					   I2S_FAT0_H3_BCLK_POLARITY | I2S_FAT0_H3_LRCK_POLARITY);
+			break;
 		}
 		break;
 	case SND_SOC_DAIFMT_IB_NF:
 		/* Invert bit clock */
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_FAT0,
 					   I2S_FAT0_H3_BCLK_POLARITY | I2S_FAT0_H3_LRCK_POLARITY,
 					   I2S_FAT0_H3_BCLK_POLARITY);
+			break;
 		}
-
 		break;
 	case SND_SOC_DAIFMT_NB_IF:
 		/* Invert frame clock */
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_FAT0,
 					   I2S_FAT0_H3_BCLK_POLARITY | I2S_FAT0_H3_LRCK_POLARITY,
 					   I2S_FAT0_H3_LRCK_POLARITY);
+			break;
 		}
-
 		break;
 	case SND_SOC_DAIFMT_NB_NF:
 		/* Nothing to do for both normal cases */
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_FAT0,
 					   I2S_FAT0_H3_BCLK_POLARITY | I2S_FAT0_H3_LRCK_POLARITY,
 					   0);
+			break;
 		}
-
 		break;
 	default:
 		return -EINVAL;
@@ -574,24 +478,22 @@ static int sun8i_i2s_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
 		/* Master */
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_CLKD,
 					   I2S_CLKD_H3_MCLKOEN,
 					   I2S_CLKD_H3_MCLKOEN);
+			break;
 		}
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
 		/* Slave */
-		if (priv->type == SOC_A83T) {
-			// TODO
-			return -EINVAL;
-		} else {
+		switch (priv->type) {
+		case SOC_H3:
 			regmap_update_bits(priv->regmap, I2S_CLKD,
 					   I2S_CLKD_H3_MCLKOEN,
 					   0);
+			break;
 		}
 		break;
 	default:
@@ -968,25 +870,6 @@ static const struct regmap_config sun8i_i2s_regmap_h3_config = {
 	.volatile_reg		= sun8i_i2s_volatile_reg,
 };
 
-static const struct reg_default sun8i_i2s_reg_a83t_defaults[] = {
-	// TODO
-	{ I2S_CTL, 0x00000000 },
-};
-
-static const struct regmap_config sun8i_i2s_regmap_a83t_config = {
-	.reg_bits		= 32,
-	.reg_stride		= 4,
-	.val_bits		= 32,
-	.max_register		= I2S_TXCHMAP_A83T, // TODO
-
-	.cache_type		= REGCACHE_FLAT,
-	.reg_defaults		= sun8i_i2s_reg_a83t_defaults,
-	.num_reg_defaults	= ARRAY_SIZE(sun8i_i2s_reg_a83t_defaults),
-	.writeable_reg		= sun8i_i2s_wr_reg,
-	.readable_reg		= sun8i_i2s_rd_reg,
-	.volatile_reg		= sun8i_i2s_volatile_reg,
-};
-
 /* --- pm --- */
 
 static int sun8i_i2s_runtime_resume(struct device *dev)
@@ -1083,10 +966,11 @@ static int sun8i_i2s_dev_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	if (priv->type == SOC_A83T)
-		priv->regmap = devm_regmap_init_mmio(dev, mmio, &sun8i_i2s_regmap_a83t_config);
-	else
+	switch (priv->type) {
+	case SOC_H3:
 		priv->regmap = devm_regmap_init_mmio(dev, mmio, &sun8i_i2s_regmap_h3_config);
+		break;
+	}
 	if (IS_ERR(priv->regmap)) {
 		dev_err(dev, "Regmap initialisation failed\n");
 		return PTR_ERR(priv->regmap);
