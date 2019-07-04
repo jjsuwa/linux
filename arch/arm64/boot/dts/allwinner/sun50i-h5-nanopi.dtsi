@@ -154,7 +154,7 @@
         simple-audio-card,name = "I2S-master";
         simple-audio-card,mclk-fs = <256>;
         simple-audio-card,format = "i2s";
-        status = "okay";
+        status = "disabled";
 
         simple-audio-card,cpu {
             sound-dai = <&i2s0>;
