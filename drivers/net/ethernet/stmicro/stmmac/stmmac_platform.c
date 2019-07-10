@@ -669,7 +669,7 @@ void stmmac_pltfr_shutdown(struct platform_device *pdev)
 
 	stmmac_remove_config_dt(pdev, plat);
 
-	return ret;
+	(void) ret;
 }
 EXPORT_SYMBOL_GPL(stmmac_pltfr_shutdown);
 
