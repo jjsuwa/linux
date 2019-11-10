@@ -22,13 +22,13 @@ LDFLAGS_vmlinux		+= -shared -Bsymbolic -z notext -z norelro \
 			$(call ld-option, --no-apply-dynamic-relocs)
 endif
 
-ifeq ($(CONFIG_ARM64_ERRATUM_843419),y)
-  ifeq ($(call ld-option, --fix-cortex-a53-843419),)
-$(warning ld does not support --fix-cortex-a53-843419; kernel may be susceptible to erratum)
-  else
-LDFLAGS_vmlinux	+= --fix-cortex-a53-843419
-  endif
-endif
+#ifeq ($(CONFIG_ARM64_ERRATUM_843419),y)
+#  ifeq ($(call ld-option, --fix-cortex-a53-843419),)
+#$(warning ld does not support --fix-cortex-a53-843419; kernel may be susceptible to erratum)
+#  else
+#LDFLAGS_vmlinux	+= --fix-cortex-a53-843419
+#  endif
+#endif
 
 KBUILD_DEFCONFIG := defconfig
 
@@ -56,6 +56,9 @@ KBUILD_AFLAGS	+= $(lseinstr) $(brokengasinst)
 
 KBUILD_CFLAGS	+= $(call cc-option,-mabi=lp64)
 KBUILD_AFLAGS	+= $(call cc-option,-mabi=lp64)
+
+# CPU-specific options
+KBUILD_CFLAGS  += -march=armv8-a+fp+simd -mtune=cortex-a53 -mno-fix-cortex-a53-835769
 
 ifeq ($(CONFIG_CPU_BIG_ENDIAN), y)
 KBUILD_CPPFLAGS	+= -mbig-endian
