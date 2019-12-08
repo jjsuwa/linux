@@ -121,8 +121,9 @@ static inline int send6(struct wireguard_device *wg, struct sk_buff *skb, struct
 			if (cache)
 				dst_cache_reset(cache);
 		}
-		ret = ipv6_stub->ipv6_dst_lookup(sock_net(sock), sock, &dst, &fl);
-		if (unlikely(ret)) {
+		dst = ipv6_stub->ipv6_dst_lookup_flow(sock_net(sock), sock, &fl, NULL);
+		if (unlikely(IS_ERR(dst))) {
+			ret = PTR_ERR(dst);
 			net_dbg_ratelimited("%s: No route to %pISpfsc, error %d\n", wg->dev->name, &endpoint->addr, ret);
 			goto err;
 		} else if (unlikely(dst->dev == skb->dev)) {
