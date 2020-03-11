@@ -63,7 +63,6 @@ enum qmi_wwan_flags {
 
 enum qmi_wwan_quirks {
 	QMI_WWAN_QUIRK_DTR = 1 << 0,	/* needs "set DTR" request */
-	QMI_WWAN_QUIRK_QUECTEL_DYNCFG = 1 << 1,	/* check num. endpoints */
 };
 
 struct qmimux_hdr {
@@ -456,89 +455,6 @@ static const u8 default_modem_addr[ETH_ALEN] = {0x02, 0x50, 0xf3};
 
 static const u8 buggy_fw_addr[ETH_ALEN] = {0x00, 0xa0, 0xc6, 0x00, 0x00, 0x00};
 
-#if 1 //add by Quectel
-#include <linux/etherdevice.h>
-#include <net/ip.h>
-#include <net/ipv6.h>
-struct sk_buff *qmi_wwan_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
-{
-	const struct ethhdr *ehdr;
-
-	skb_reset_mac_header(skb);
-	ehdr = eth_hdr(skb);
-
-	if (ehdr->h_proto == htons(ETH_P_IP)) {
-		if (unlikely(skb->len <= (sizeof(struct ethhdr) + sizeof(struct iphdr)))) {
-			goto drop_skb;
-		}
-	}
-	else if (ehdr->h_proto == htons(ETH_P_IPV6)) {
-		if (unlikely(skb->len <= (sizeof(struct ethhdr) + sizeof(struct ipv6hdr)))) {
-			goto drop_skb;
-		}
-	}
-	else {
-		dev_err(&dev->intf->dev,  "skb h_proto is %04x\n", ntohs(ehdr->h_proto));
-		goto drop_skb;
-	}
-
-	if (unlikely(dev->udev->descriptor.idVendor != cpu_to_le16(0x2C7C)))
-		return skb;
-
-	// Skip Ethernet header from message
-	if (likely((skb_pull(skb, ETH_HLEN))))
-		return skb;
-
-drop_skb:
-	dev_err(&dev->intf->dev,  "Packet Dropped\n");
-	// Filter the packet out, release it
-	dev_kfree_skb_any(skb);
-	return NULL;
-}
-
-#include <linux/version.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION( 3,9,1 ))
-static int qmi_wwan_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
-{
-	__be16 proto;
-
-	if (dev->udev->descriptor.idVendor != cpu_to_le16(0x2C7C))
-		return 1;
-
-	/* This check is no longer done by usbnet */
-	if (skb->len < dev->net->hard_header_len)
-		return 0;
-
-	switch (skb->data[0] & 0xf0) {
-	case 0x40:
-		proto = htons(ETH_P_IP);
-		break;
-	case 0x60:
-		proto = htons(ETH_P_IPV6);
-		break;
-	case 0x00:
-		if (is_multicast_ether_addr(skb->data))
-			return 1;
-		/* possibly bogus destination - rewrite just in case */
-		skb_reset_mac_header(skb);
-		goto fix_dest;
-	default:
-		/* pass along other packets without modifications */
-		return 1;
-	}
-	if (skb_headroom(skb) < ETH_HLEN)
-		return 0;
-	skb_push(skb, ETH_HLEN);
-	skb_reset_mac_header(skb);
-	eth_hdr(skb)->h_proto = proto;
-	memset(eth_hdr(skb)->h_source, 0, ETH_ALEN);
-fix_dest:
-	memcpy(eth_hdr(skb)->h_dest, dev->net->dev_addr, ETH_ALEN);
-	return 1;
-}
-#endif
-#endif
-
 /* Make up an ethernet header if the packet doesn't have one.
  *
  * A firmware bug common among several devices cause them to send raw
@@ -833,21 +749,6 @@ static int qmi_wwan_bind(struct usbnet *dev, struct usb_interface *intf)
 	}
 	dev->net->netdev_ops = &qmi_wwan_netdev_ops;
 	dev->net->sysfs_groups[0] = &qmi_wwan_sysfs_attr_group;
-
-#if 1 //add by Quectel
-	if (dev->udev->descriptor.idVendor == cpu_to_le16(0x2C7C)) {
-		dev_info(&intf->dev, "Quectel EC21&EC25 work on RawIP mode\n");
-		dev->net->flags |= IFF_NOARP;
-		usb_control_msg(
-			interface_to_usbdev(intf),
-			usb_sndctrlpipe(interface_to_usbdev(intf), 0),
-			0x22,
-			0x21,
-			1, //active CDC DTR
-			intf->cur_altsetting->desc.bInterfaceNumber,
-			NULL, 0, 100);
-		}
-#endif
 err:
 	return status;
 }
@@ -938,12 +839,6 @@ static const struct driver_info	qmi_wwan_info = {
 	.bind		= qmi_wwan_bind,
 	.unbind		= qmi_wwan_unbind,
 	.manage_power	= qmi_wwan_manage_power,
-#if 1 //add by Quectel
-	.tx_fixup       = qmi_wwan_tx_fixup,
-#if (LINUX_VERSION_CODE < KERNEL_VERSION( 3,9,1 ))
-	.rx_fixup       = qmi_wwan_rx_fixup,
-#endif
-#endif
 	.rx_fixup       = qmi_wwan_rx_fixup,
 };
 
@@ -955,16 +850,6 @@ static const struct driver_info	qmi_wwan_info_quirk_dtr = {
 	.manage_power	= qmi_wwan_manage_power,
 	.rx_fixup       = qmi_wwan_rx_fixup,
 	.data           = QMI_WWAN_QUIRK_DTR,
-};
-
-static const struct driver_info	qmi_wwan_info_quirk_quectel_dyncfg = {
-	.description	= "WWAN/QMI device",
-	.flags		= FLAG_WWAN | FLAG_SEND_ZLP,
-	.bind		= qmi_wwan_bind,
-	.unbind		= qmi_wwan_unbind,
-	.manage_power	= qmi_wwan_manage_power,
-	.rx_fixup       = qmi_wwan_rx_fixup,
-	.data           = QMI_WWAN_QUIRK_DTR | QMI_WWAN_QUIRK_QUECTEL_DYNCFG,
 };
 
 #define HUAWEI_VENDOR_ID	0x12D1
@@ -987,28 +872,20 @@ static const struct driver_info	qmi_wwan_info_quirk_quectel_dyncfg = {
 #define QMI_GOBI_DEVICE(vend, prod) \
 	QMI_FIXED_INTF(vend, prod, 0)
 
-/* Quectel does not use fixed interface numbers on at least some of their
- * devices. We need to check the number of endpoints to ensure that we bind to
- * the correct interface.
+/* Many devices have QMI and DIAG functions which are distinguishable
+ * from other vendor specific functions by class, subclass and
+ * protocol all being 0xff. The DIAG function has exactly 2 endpoints
+ * and is silently rejected when probed.
+ *
+ * This makes it possible to match dynamically numbered QMI functions
+ * as seen on e.g. many Quectel modems.
  */
-#define QMI_QUIRK_QUECTEL_DYNCFG(vend, prod) \
+#define QMI_MATCH_FF_FF_FF(vend, prod) \
 	USB_DEVICE_AND_INTERFACE_INFO(vend, prod, USB_CLASS_VENDOR_SPEC, \
 				      USB_SUBCLASS_VENDOR_SPEC, 0xff), \
-	.driver_info = (unsigned long)&qmi_wwan_info_quirk_quectel_dyncfg
+	.driver_info = (unsigned long)&qmi_wwan_info_quirk_dtr
 
 static const struct usb_device_id products[] = {
-#if 1 //add by Quectel
-	{ QMI_FIXED_INTF(0x05C6, 0x9003, 4) },  /* Quectel UC20 */
-	{ QMI_FIXED_INTF(0x05C6, 0x9215, 4) },  /* Quectel EC20 */
-	{ QMI_FIXED_INTF(0x2C7C, 0x0125, 4) },  /* Quectel EC25/EC20 R2.0 */
-	{ QMI_FIXED_INTF(0x2C7C, 0x0121, 4) },  /* Quectel EC21 */
-	{ QMI_FIXED_INTF(0x2C7C, 0x0191, 4) },  /* Quectel EG91 */
-	{ QMI_FIXED_INTF(0x2C7C, 0x0195, 4) },  /* Quectel EG95 */
-	{ QMI_FIXED_INTF(0x2C7C, 0x0306, 4) },  /* Quectel EG06/EP06/EM06 */
-	{ QMI_FIXED_INTF(0x2C7C, 0x0296, 4) },  /* Quectel BG96 */
-	{ QMI_FIXED_INTF(0x2C7C, 0x0435, 4) },  /* Quectel AG35 */
-#endif
-
 	/* 1. CDC ECM like devices match on the control interface */
 	{	/* Huawei E392, E398 and possibly others sharing both device id and more... */
 		USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 1, 9),
@@ -1112,10 +989,10 @@ static const struct usb_device_id products[] = {
 		USB_DEVICE_AND_INTERFACE_INFO(0x03f0, 0x581d, USB_CLASS_VENDOR_SPEC, 1, 7),
 		.driver_info = (unsigned long)&qmi_wwan_info,
 	},
-	{QMI_QUIRK_QUECTEL_DYNCFG(0x2c7c, 0x0125)},	/* Quectel EC25, EC20 R2.0  Mini PCIe */
-	{QMI_QUIRK_QUECTEL_DYNCFG(0x2c7c, 0x0306)},	/* Quectel EP06/EG06/EM06 */
-	{QMI_QUIRK_QUECTEL_DYNCFG(0x2c7c, 0x0512)},	/* Quectel EG12/EM12 */
-	{QMI_QUIRK_QUECTEL_DYNCFG(0x2c7c, 0x0800)},	/* Quectel RM500Q-GL */
+	{QMI_MATCH_FF_FF_FF(0x2c7c, 0x0125)},	/* Quectel EC25, EC20 R2.0  Mini PCIe */
+	{QMI_MATCH_FF_FF_FF(0x2c7c, 0x0306)},	/* Quectel EP06/EG06/EM06 */
+	{QMI_MATCH_FF_FF_FF(0x2c7c, 0x0512)},	/* Quectel EG12/EM12 */
+	{QMI_MATCH_FF_FF_FF(0x2c7c, 0x0800)},	/* Quectel RM500Q-GL */
 
 	/* 3. Combined interface devices matching on interface number */
 	{QMI_FIXED_INTF(0x0408, 0xea42, 4)},	/* Yota / Megafon M100-1 */
@@ -1403,6 +1280,7 @@ static const struct usb_device_id products[] = {
 	{QMI_FIXED_INTF(0x413c, 0x81b6, 8)},	/* Dell Wireless 5811e */
 	{QMI_FIXED_INTF(0x413c, 0x81b6, 10)},	/* Dell Wireless 5811e */
 	{QMI_FIXED_INTF(0x413c, 0x81d7, 0)},	/* Dell Wireless 5821e */
+	{QMI_FIXED_INTF(0x413c, 0x81d7, 1)},	/* Dell Wireless 5821e preproduction config */
 	{QMI_FIXED_INTF(0x413c, 0x81e0, 0)},	/* Dell Wireless 5821e with eSIM support*/
 	{QMI_FIXED_INTF(0x03f0, 0x4e1d, 8)},	/* HP lt4111 LTE/EV-DO/HSPA+ Gobi 4G Module */
 	{QMI_FIXED_INTF(0x03f0, 0x9d1d, 1)},	/* HP lt4120 Snapdragon X5 LTE */
@@ -1493,7 +1371,6 @@ static int qmi_wwan_probe(struct usb_interface *intf,
 {
 	struct usb_device_id *id = (struct usb_device_id *)prod;
 	struct usb_interface_descriptor *desc = &intf->cur_altsetting->desc;
-	const struct driver_info *info;
 
 	/* Workaround to enable dynamic IDs.  This disables usbnet
 	 * blacklisting functionality.  Which, if required, can be
@@ -1529,12 +1406,8 @@ static int qmi_wwan_probe(struct usb_interface *intf,
 	 * different. Ignore the current interface if the number of endpoints
 	 * equals the number for the diag interface (two).
 	 */
-	info = (void *)id->driver_info;
-
-	if (info->data & QMI_WWAN_QUIRK_QUECTEL_DYNCFG) {
-		if (desc->bNumEndpoints == 2)
-			return -ENODEV;
-	}
+	if (desc->bNumEndpoints == 2)
+		return -ENODEV;
 
 	return usbnet_probe(intf, id);
 }
